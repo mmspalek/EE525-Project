@@ -1,4 +1,3 @@
-\begin{lstlisting}[style=CStyle]
 // Nolan Egging
 // MPU6050 FT/SelfTest Code
 // 10 October 2024
