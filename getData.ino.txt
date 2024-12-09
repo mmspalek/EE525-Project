@@ -1,0 +1,123 @@
+\begin{lstlisting}[style=CStyle]
+// Nolan Egging
+// MPU6050 Data Collection Code
+// 9 October 2024
+
+// libraries
+#include <Wire.h> // I2C
+#include <HCSR04.h>
+
+// constants
+const int LED_PIN = 2;
+const int BUT_PIN = 12;
+const int TRIG_PIN = 10;
+const int ECHO_PIN = 9;
+
+const int MPU = 0x68; // MPU6050 I2C address
+const int BAUD = 19200;
+const long long PERIOD_US = 20000;
+const char DIR = 'Z'; 
+
+// registers
+const int ACCEL_CONFIG = 0x1C;
+const int DLPF_CFG = 0x1A;
+const int ACCEL_XOUT_H = 0x3B;
+const int ACCEL_ZOUT_H = 0x3F;
+
+// variables
+bool print_data = 0;
+int16_t acc_x, acc_y, acc_z;
+
+// ultrasonic sensor
+UltraSonicDistanceSensor distanceSensor(TRIG_PIN, ECHO_PIN);
+
+void setup() {
+
+  // setup digital pins
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUT_PIN, INPUT);
+  digitalWrite(LED_PIN, 0);
+
+  // initialize serial communication
+  Serial.begin(BAUD);
+
+  // reset MPU
+  Wire.begin(); // start i2c
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B); // register 6B
+  Wire.write(0x00); // force reset
+  Wire.endTransmission(true);
+
+  // configure sensitivity
+  Wire.beginTransmission(MPU);
+  Wire.write(ACCEL_CONFIG);
+  Wire.write(0x00); // 0x00->2g, 0x08->4g, 0x10->8g, 0x18->16g
+  Wire.endTransmission(true);
+
+  // configure Low Pass Filter
+  Wire.beginTransmission(MPU);
+  Wire.write(DLPF_CFG);
+  Wire.write(0x03); // 0x00 -> 260Hz, 0x03 -> 44Hz, 0x06 -> 5Hz.
+  Wire.endTransmission(true);
+
+  delay(20);
+}
+
+void loop() {
+  long long starttime = micros();
+
+  if (Serial.available() && Serial.read() == 's') {
+    if (print_data) {
+      print_data = 0;
+      digitalWrite(LED_PIN, 0);
+      Serial.print("END\r\n");
+      //delay(1000);
+      starttime = micros();
+    }
+    else {
+      print_data = 1;
+      digitalWrite(LED_PIN, 1);
+      //delay(500);
+      Serial.print("START\r\n");
+      while(1 == digitalRead(BUT_PIN));
+      starttime = micros();
+    }
+  }
+
+  // get accelerometer data
+  //float distance = distanceSensor.measureDistanceCm();
+  //digitalWrite(TRIG_PIN, LOW);  
+	//delayMicroseconds(2);  
+	//digitalWrite(TRIG_PIN, HIGH);  
+	//delayMicroseconds(10);  
+	//digitalWrite(TRIG_PIN, LOW);
+  //double duration = pulseIn(ECHO_PIN, HIGH); 
+  //double distance = (duration * 343) / 20000;  
+
+  // read x, y, and z accelerometers
+  Wire.beginTransmission(MPU);
+  //Wire.write(ACCEL_XOUT_H);
+  Wire.write(ACCEL_ZOUT_H);
+  Wire.endTransmission(false);
+  //Wire.requestFrom(MPU, 6, true);
+  Wire.requestFrom(MPU, 2, true);
+  //acc_x = (Wire.read() << 8 | Wire.read());
+  //acc_y = (Wire.read() << 8 | Wire.read());
+  acc_z = (Wire.read() << 8 | Wire.read());
+  
+  // print output
+  if (print_data) {
+    //if (DIR == 'X') Serial.print(acc_x);
+    //if (DIR == 'Y') Serial.print(acc_y);
+    //if (DIR == 'Z') Serial.print(acc_z);
+    Serial.print(acc_z);
+    //Serial.print(", ");
+    //Serial.print(distance);
+    Serial.print("\r\n");
+  }
+
+  long long endtime = micros();
+  //if (PERIOD_US > (endtime - starttime)) delayMicroseconds(PERIOD_US - (endtime - starttime));
+  while ((endtime - starttime) < PERIOD_US) endtime = micros();
+
+}

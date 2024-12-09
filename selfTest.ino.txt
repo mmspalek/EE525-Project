@@ -1,0 +1,121 @@
+\begin{lstlisting}[style=CStyle]
+// Nolan Egging
+// MPU6050 FT/SelfTest Code
+// 10 October 2024
+
+#include <Wire.h>
+
+const int MPU = 0x68;
+const int BAUD = 19200;
+const int SELF_TEST_X = 0x0D;
+const int SELF_TEST_Y = 0x0E;   
+const int SELF_TEST_Z = 0x0F;
+const int SELF_TEST_A = 0x10;
+const int GYRO_CONFIG = 0x1B;
+const int ACCEL_CONFIG = 0x1C;
+
+int16_t acc_x, acc_y, acc_z;
+
+void setup() {
+  
+  // initialize serial communication
+  Serial.begin(BAUD);
+
+  // reset MPU
+  Wire.begin();                      // start i2c
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B);                  // register 6B
+  Wire.write(0x00);                  // force reset
+  Wire.endTransmission(true);
+
+  // configure sensitivity
+  Wire.beginTransmission(MPU);
+  Wire.write(0x1C);                  // ACCEL_CONFIG
+  Wire.write(0x10);                  // Must be 8g for self test, 0x10->8g
+  Wire.endTransmission(true);
+
+  delay(1000);
+  Serial.println("Beginning self test...");
+  MPU6050SelfTest();
+  delay(1000);
+  Serial.println("Self Test Complete");
+}
+
+void loop() {
+
+   // read x, y, and z accelerometers
+  Wire.beginTransmission(MPU);
+  Wire.write(0x3B); // Start with register 0x3B (ACCEL_XOUT_H)
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU, 6, true); // Read 6 registers total, each axis value is stored in 2 registers
+  acc_x = (Wire.read() << 8 | Wire.read());
+  acc_y = (Wire.read() << 8 | Wire.read());
+  acc_z = (Wire.read() << 8 | Wire.read());
+
+  Serial.print("X="); Serial.println(acc_x);
+  Serial.print("Y="); Serial.println(acc_y);
+  Serial.print("Z="); Serial.println(acc_z);
+
+  delay(1000);
+
+}
+
+// Accelerometer and gyroscope self test; check calibration wrt factory settings
+// Should return percent deviation from factory trim values, +/- 14 or less deviation is a pass
+void MPU6050SelfTest() {
+
+  uint8_t rawData[4];
+  uint8_t selfTest[6];
+  float factoryTrim[6];
+   
+  // Configure the accelerometer for self-test
+  writeByte(MPU, ACCEL_CONFIG, 0xF0); // Enable self test on all three axes and set accelerometer range to +/- 8 g
+  writeByte(MPU, GYRO_CONFIG,  0xE0); // Enable self test on all three axes and set gyro range to +/- 250 degrees/s
+  delay(250);  // Delay a while to let the device execute the self-test
+
+  rawData[0] = readByte(MPU, SELF_TEST_X); // X-axis self-test results
+  rawData[1] = readByte(MPU, SELF_TEST_Y); // Y-axis self-test results
+  rawData[2] = readByte(MPU, SELF_TEST_Z); // Z-axis self-test results
+  rawData[3] = readByte(MPU, SELF_TEST_A); // Mixed-axis self-test results
+
+  // Extract the acceleration test results first
+  selfTest[0] = (rawData[0] >> 3) | (rawData[3] & 0x30) >> 4 ; // XA_TEST result is a five-bit unsigned integer
+  selfTest[1] = (rawData[1] >> 3) | (rawData[3] & 0x0C) >> 2 ; // YA_TEST result is a five-bit unsigned integer
+  selfTest[2] = (rawData[2] >> 3) | (rawData[3] & 0x03) >> 0 ; // ZA_TEST result is a five-bit unsigned integer
+
+  // Extract the gyration test results first
+  selfTest[3] = rawData[0]  & 0x1F ; // XG_TEST result is a five-bit unsigned integer
+  selfTest[4] = rawData[1]  & 0x1F ; // YG_TEST result is a five-bit unsigned integer
+  selfTest[5] = rawData[2]  & 0x1F ; // ZG_TEST result is a five-bit unsigned integer   
+  // Process results to allow final comparison with factory set values
+  factoryTrim[0] = (4096.0*0.34)*(pow( (0.92/0.34) , (((float)selfTest[0] - 1.0)/30.0))); // FT[Xa] factory trim calculation
+  factoryTrim[1] = (4096.0*0.34)*(pow( (0.92/0.34) , (((float)selfTest[1] - 1.0)/30.0))); // FT[Ya] factory trim calculation
+  factoryTrim[2] = (4096.0*0.34)*(pow( (0.92/0.34) , (((float)selfTest[2] - 1.0)/30.0))); // FT[Za] factory trim calculation
+  factoryTrim[3] =  ( 25.0*131.0)*(pow( 1.046 , ((float)selfTest[3] - 1.0) ));             // FT[Xg] factory trim calculation
+  factoryTrim[4] =  (-25.0*131.0)*(pow( 1.046 , ((float)selfTest[4] - 1.0) ));             // FT[Yg] factory trim calculation
+  factoryTrim[5] =  ( 25.0*131.0)*(pow( 1.046 , ((float)selfTest[5] - 1.0) ));             // FT[Zg] factory trim calculation
+   
+  //  Output self-test results and factory trim calculation if desired
+  Serial.println(selfTest[0]); Serial.println(selfTest[1]); Serial.println(selfTest[2]);
+  //Serial.println(selfTest[3]); Serial.println(selfTest[4]); Serial.println(selfTest[5]);
+  Serial.println(factoryTrim[0]); Serial.println(factoryTrim[1]); Serial.println(factoryTrim[2]);
+  //Serial.println(factoryTrim[3]); Serial.println(factoryTrim[4]); Serial.println(factoryTrim[5]);
+   
+}
+
+void writeByte(uint8_t address, uint8_t subAddress, uint8_t data) {
+  Wire.beginTransmission(address);  // Initialize the Tx buffer
+  Wire.write(subAddress);           // Put slave register address in Tx buffer
+  Wire.write(data);                 // Put data in Tx buffer
+  Wire.endTransmission();           // Send the Tx buffer
+}
+
+uint8_t readByte(uint8_t address, uint8_t subAddress) {
+  uint8_t data; // `data` will store the register data	 
+  Wire.beginTransmission(address);         // Initialize the Tx buffer
+  Wire.write(subAddress);	                 // Put slave register address in Tx buffer
+  Wire.endTransmission(false);             // Send the Tx buffer, but send a restart to keep connection alive
+  Wire.requestFrom(address, (uint8_t) 1);  // Read one byte from slave register address 
+  data = Wire.read();                      // Fill Rx buffer with result
+  return data;                             // Return data read from slave register
+}
